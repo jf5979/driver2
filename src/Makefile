@@ -2,7 +2,7 @@
 KERNEL_DIR    	:= /lib/modules/$(shell uname -r)/build
 PWD        	:= $(shell pwd)
 
-obj-m        := HelloUsb_driver.o
+obj-m        := cam_driver.o
 
 all: ele784_driver
 
