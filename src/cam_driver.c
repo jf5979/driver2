@@ -22,7 +22,12 @@ typedef struct cam_driver_Dev {
     struct cdev cdev;
 } BDev;
 
+struct usb_driver notre_driver = {
+    .name = "Cam_driver",
 
+};
+
+struct usb_interface *intf;
 
 struct file_operations cam_driver_fops = {
         .owner = THIS_MODULE,
@@ -59,7 +64,15 @@ static void __exit cam_driver_cleanup (void) {
  * @return 0 en cas de succes sinon la valeur negative du code d'erreur
  * **/
 int cam_driver_open(struct inode *inode, struct file *filp) {
-
+    int subminor;
+    printk(KERN_WARNING "ELE784 -> Open \n\r");
+    subminor = iminor(inode);
+    intf = usb_find_interface(&notre_driver, subminor);
+    if (!intf) {
+        printk(KERN_WARNING "ELE784 -> Open: Ne peux ouvrir le peripherique");
+        return -ENODEV;
+    }
+    filp->private_data = intf;
     return 0;
 }
 /**
@@ -69,7 +82,8 @@ int cam_driver_open(struct inode *inode, struct file *filp) {
  * @return 0 en cas de succes sinon la valeur negative du code d'erreur
  * **/
 int cam_driver_release(struct inode *inode, struct file *filp) {
-
+    notre_driver.disconnect(intf);
+    printk(KERN_WARNING"Driver released");
     return 0;
 }
 
@@ -95,6 +109,12 @@ static ssize_t cam_driver_read(struct file *flip, char __user *ubuf, size_t coun
  */
 long cam_driver_ioctl (struct file *flip, unsigned int cmd, unsigned long arg){
     return 0;
+}
+
+void  cam_driver_disconnect(struct usb_interface *intf){
+    //usb_deregister_dev(&notre_usb_dev);
+    printk(KERN_WARNING"Device Unregisted\n");
+
 }
 
 module_init(cam_driver_init);

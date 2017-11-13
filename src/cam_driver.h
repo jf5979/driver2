@@ -13,6 +13,7 @@
 #include <asm/atomic.h>
 #include <asm/uaccess.h>
 #include <linux/sched.h>
+#include <linux/usb.h>
 
 static int cam_driver_init(void);
 
@@ -25,3 +26,5 @@ int cam_driver_release (struct inode *inode, struct file *flip);
 static ssize_t cam_driver_read(struct file *flip, char __user *ubuf, size_t count, loff_t *f_ops);
 
 long cam_driver_ioctl (struct file *flip, unsigned int cmd, unsigned long arg);
+
+void cam_driver_disconnect(struct usb_interface *intf);
