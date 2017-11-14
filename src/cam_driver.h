@@ -45,6 +45,8 @@ static ssize_t cam_read(struct file *flip, char __user *ubuf, size_t count, loff
 
 long cam_ioctl (struct file *flip, unsigned int cmd, unsigned long arg);
 
+int cam_probe(struct usb_interface *intf, const struct usb_device_id *id);
+
 void cam_disconnect(struct usb_interface *intf);
 
 

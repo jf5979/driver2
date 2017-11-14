@@ -18,15 +18,23 @@ typedef struct cam_Dev {
     struct cdev cdev;
 } CAMDev;
 
-struct usb_driver notre_driver = {
-    .name = "cam",
-    //.probe = ,
-    .disconnect = cam_disconnect,
-
+static struct usb_device_id cam_ids[] = {
+        {USB_DEVICE(0x046d, 0x08cc)},
+        {USB_DEVICE(0x1871, 0x0101)},//personnal webcam for testing
+        {},
+};
+MODULE_DEVICE_TABLE(usb, cam_ids);
+struct usb_device * cam_usb_device;
+struct usb_driver cam_driver = {
+        .name = "camera_driver",
+        .id_table = cam_ids,
+        .probe = cam_probe,
+        .disconnect = cam_disconnect,
 };
 
 CAMDev cam_tool;
-struct usb_interface *intf;
+
+struct usb_interface *cam_int;
 
 struct file_operations cam_fops = {
         .owner = THIS_MODULE,
@@ -35,7 +43,11 @@ struct file_operations cam_fops = {
         .read = cam_read,
         .unlocked_ioctl = cam_ioctl,
 };
-
+struct usb_class_driver cam_class_driver = {
+        .name = "cam_driver",
+        .fops = &cam_fops,
+        .minor_base = 0,
+};
 
 /**
  * cam_init
@@ -50,11 +62,9 @@ static int __init cam_init (void) {
     cam_tool.dev=MKDEV(250,0);
     if (!MAJOR(cam_tool.dev)) {
         result = alloc_chrdev_region(&(cam_tool.dev), MINOR(cam_tool.dev), 0, "my_cam");
-        printk(KERN_ALERT"1\n");
     }
     else {
         result = register_chrdev_region(cam_tool.dev, 0, "my_cam");
-        printk(KERN_ALERT"2\n");
     }
     if (result < 0)
         printk(KERN_ALERT"cam_init ERROR IN regist_chrdev_region error code is : %d (%s:%s:%u)\n", result,__FILE__, __FUNCTION__, __LINE__);
@@ -67,6 +77,11 @@ static int __init cam_init (void) {
     cam_tool.cdev.owner = THIS_MODULE;
     if (cdev_add(&(cam_tool.cdev), cam_tool.dev, 1) < 0)
         printk(KERN_ALERT"cam_init ERROR IN cdev_add (%s:%s:%u)\n", __FILE__, __FUNCTION__, __LINE__);
+    result=usb_register(&cam_driver);
+    if(result){
+        printk(KERN_ALERT"Wasn't able to register USB driver (%s:%u)\n", __FUNCTION__, __LINE__);
+        return result;
+    }
 
     //Initialisation des variables importantes :
 
@@ -81,6 +96,7 @@ static int __init cam_init (void) {
  *
  */
 static void __exit cam_cleanup (void) {
+    usb_deregister(&cam_driver);
     cdev_del(&(cam_tool.cdev));
     unregister_chrdev_region(cam_tool.dev, 0);
     device_destroy (cam_class, cam_tool.dev);
@@ -97,14 +113,14 @@ static void __exit cam_cleanup (void) {
  * **/
 int cam_open(struct inode *inode, struct file *filp) {
     int subminor;
-    printk(KERN_WARNING "ELE784 -> Open \n\r");
+    printk(KERN_WARNING "ELE784 -> Open (%s:%u)\n", __FUNCTION__, __LINE__);
     subminor = iminor(inode);
-    intf = usb_find_interface(&notre_driver, subminor);
-    if (!intf) {
-        printk(KERN_WARNING "ELE784 -> Open: Ne peux ouvrir le peripherique");
+    cam_int = usb_find_interface(&cam_driver, subminor);
+    if (!cam_int) {
+        printk(KERN_WARNING "ELE784 -> Open: Ne peux ouvrir le peripherique iminor %d (%s:%u)\n",subminor, __FUNCTION__, __LINE__);
         return -ENODEV;
     }
-    filp->private_data = intf;
+    filp->private_data = cam_int;
     return 0;
 }
 /**
@@ -114,7 +130,7 @@ int cam_open(struct inode *inode, struct file *filp) {
  * @return 0 en cas de succes sinon la valeur negative du code d'erreur
  * **/
 int cam_release(struct inode *inode, struct file *filp) {
-    printk(KERN_WARNING"Driver released\n");
+    printk(KERN_WARNING"Driver released(%s:%u)\n", __FUNCTION__, __LINE__);
     return 0;
 }
 
@@ -127,7 +143,7 @@ int cam_release(struct inode *inode, struct file *filp) {
  * @return Valeur negative du code d'erreur ou nombre de charatere lu
  */
 static ssize_t cam_read(struct file *flip, char __user *ubuf, size_t count, loff_t *f_ops){
-    printk(KERN_WARNING"DANS la fonction read\n");
+    printk(KERN_WARNING"DANS la fonction read(%s:%u)\n", __FUNCTION__, __LINE__);
     return 0;
 }
 
@@ -158,12 +174,36 @@ long cam_ioctl (struct file *flip, unsigned int cmd, unsigned long arg){
         default:
             return 0;
     }
+
+}
+/**
+ * @brief   Function Probe afin de verifier la compatibilite du device usb (extrait de ELE784 cours 5 p.27-28)
+ * @param intf
+ * @param id
+ * @return
+ */
+
+int cam_probe(struct usb_interface *intf, const struct usb_device_id *id){
+    struct usb_host_interface * interface;
+    struct usb_device *dev = interface_to_usbdev (intf);
+    printk(KERN_WARNING"CAMERA PLUGGED IN (%04X:%04X) (%s:%u)\n",id->idVendor, id->idProduct,__FUNCTION__, __LINE__);
+    interface=&(intf->altsetting[0]);
+
+    printk(KERN_WARNING"probing (%s:%u)\n", __FUNCTION__, __LINE__);
+
+    usb_set_intfdata (intf, dev);
+    usb_register_dev (intf, &cam_class_driver);
+    usb_set_interface(dev, 1, 4);
     return 0;
 }
 
+/**
+ *
+ * @param intf
+ */
 void  cam_disconnect(struct usb_interface *intf){
    // usb_deregister_dev(&notre_usb_dev);
-    printk(KERN_WARNING"Device Unregisted\n");
+    printk(KERN_WARNING"Device disconnected  (%s:%u)\n", __FUNCTION__, __LINE__);
 
 }
 
