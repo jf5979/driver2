@@ -16,12 +16,15 @@ typedef struct cam_Dev {
     struct semaphore SemBuf;
     dev_t dev;
     struct cdev cdev;
+    int nb_device;
+    struct usb_interface *cam_int;
 } CAMDev;
 
 static struct usb_device_id cam_ids[] = {
-        {USB_DEVICE(0x046d, 0x08cc)},
+        {USB_DEVICE(0x046d, 0x0994)},
         {USB_DEVICE(0x1871, 0x0101)},//personnal webcam for testing
-        {},
+        {USB_DEVICE(0x046d, 0x08cc)},
+        {}
 };
 MODULE_DEVICE_TABLE(usb, cam_ids);
 struct usb_device * cam_usb_device;
@@ -34,7 +37,7 @@ struct usb_driver cam_driver = {
 
 CAMDev cam_tool;
 
-struct usb_interface *cam_int;
+
 
 struct file_operations cam_fops = {
         .owner = THIS_MODULE,
@@ -44,7 +47,7 @@ struct file_operations cam_fops = {
         .unlocked_ioctl = cam_ioctl,
 };
 struct usb_class_driver cam_class_driver = {
-        .name = "cam_driver",
+        .name = "cm_driver",
         .fops = &cam_fops,
         .minor_base = 0,
 };
@@ -58,7 +61,11 @@ struct usb_class_driver cam_class_driver = {
 static int __init cam_init (void) {
     int result=0;
     printk(KERN_ALERT"cam_init (%s:%u) => Initialising camera driver\n", __FUNCTION__, __LINE__);
-    //Reserve quatre instance mineure du driver si besoin est pour ouverture simultane
+    //Initialisation des variables importantes :
+    cam_tool.nb_device=0;
+    sema_init(&(cam_tool.SemBuf),0);
+    up(&(cam_tool.SemBuf));
+
     cam_tool.dev=MKDEV(250,0);
     if (!MAJOR(cam_tool.dev)) {
         result = alloc_chrdev_region(&(cam_tool.dev), MINOR(cam_tool.dev), 0, "my_cam");
@@ -77,16 +84,15 @@ static int __init cam_init (void) {
     cam_tool.cdev.owner = THIS_MODULE;
     if (cdev_add(&(cam_tool.cdev), cam_tool.dev, 1) < 0)
         printk(KERN_ALERT"cam_init ERROR IN cdev_add (%s:%s:%u)\n", __FILE__, __FUNCTION__, __LINE__);
+
+//
     result=usb_register(&cam_driver);
     if(result){
         printk(KERN_ALERT"Wasn't able to register USB driver (%s:%u)\n", __FUNCTION__, __LINE__);
         return result;
     }
 
-    //Initialisation des variables importantes :
 
-    sema_init(&(cam_tool.SemBuf),0);
-    up(&(cam_tool.SemBuf));
 
     return 0;
 }
@@ -112,15 +118,17 @@ static void __exit cam_cleanup (void) {
  * @return 0 en cas de succes sinon la valeur negative du code d'erreur
  * **/
 int cam_open(struct inode *inode, struct file *filp) {
+    struct usb_interface * cam_int_temp;
     int subminor;
     printk(KERN_WARNING "ELE784 -> Open (%s:%u)\n", __FUNCTION__, __LINE__);
-    subminor = iminor(inode);
-    cam_int = usb_find_interface(&cam_driver, subminor);
-    if (!cam_int) {
+    //subminor = iminor(inode);
+    subminor =2;
+    cam_int_temp = usb_find_interface(&cam_driver, subminor);
+    if (!cam_int_temp) {
         printk(KERN_WARNING "ELE784 -> Open: Ne peux ouvrir le peripherique iminor %d (%s:%u)\n",subminor, __FUNCTION__, __LINE__);
         return -ENODEV;
     }
-    filp->private_data = cam_int;
+    filp->private_data = cam_int_temp;
     return 0;
 }
 /**
@@ -155,22 +163,43 @@ static ssize_t cam_read(struct file *flip, char __user *ubuf, size_t count, loff
  * @return retourne le parametre desirer ou un code d'erreur si la commande est inexistante
  */
 long cam_ioctl (struct file *flip, unsigned int cmd, unsigned long arg){
+    struct usb_interface *intf = flip->private_data;
+    struct usb_device *dev = usb_get_intfdata(intf);
+    int buffer;
     printk(KERN_WARNING"DANS ioctl\n");
+
+//    int usb_control_msg(struct usb_device *dev, unsigned int pipe,
+//                        __u8 request, __u8 requesttype,
+//                        __u16 value, __u16 index,
+//                        void *data, __u16 size, int timeout);
     switch(cmd){
         case IOCTL_GET:
+            //return usb_control_msg(dev,usb_rcvctrlpipe(dev,0),0x0B,
+//                                   (USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_INTERFACE),
+//                                   0x0000,0x0200,NULL,2,0);
             return 0;
         case IOCTL_SET:
-            return 0;
+//            return usb_control_msg(dev, usb_sndctrlpipe(dev,0),0x0B,
+//                                   (USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_INTERFACE),
+//                                   0x0004,0x0001,NULL,0,0);
         case IOCTL_STREAMON:
+            return  usb_control_msg(dev, usb_sndctrlpipe(dev,0),0x0B,
+                                    (USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE),
+                                    0x0004,0x0001,NULL,0,0);
             return 0;
         case IOCTL_STREAMOFF:
-            return 0;
+            return  usb_control_msg(dev,usb_sndctrlpipe(dev,0),0x0B,
+                                    (USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_INTERFACE),
+                                    0x0000,0x0001,NULL,0,0);
         case IOCTL_GRAB:
             return 0;
         case IOCTL_PANTILT:
             return 0;
         case IOCTL_PANTILT_RESEST:
-            return 0;
+            buffer=0x03;
+            return usb_control_msg(dev,usb_sndctrlpipe(dev,0),0x01,
+                                   (USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE),
+                                   0x0200,0x0900,(int *) &buffer,1,0);
         default:
             return 0;
     }
@@ -184,17 +213,37 @@ long cam_ioctl (struct file *flip, unsigned int cmd, unsigned long arg){
  */
 
 int cam_probe(struct usb_interface *intf, const struct usb_device_id *id){
-    struct usb_host_interface * interface;
-    struct usb_device *dev = interface_to_usbdev (intf);
-    printk(KERN_WARNING"CAMERA PLUGGED IN (%04X:%04X) (%s:%u)\n",id->idVendor, id->idProduct,__FUNCTION__, __LINE__);
-    interface=&(intf->altsetting[0]);
+    struct usb_device *dev ;
 
-    printk(KERN_WARNING"probing (%s:%u)\n", __FUNCTION__, __LINE__);
+    down_interruptible(&(cam_tool.SemBuf));
+    if(cam_tool.nb_device==0){
+        dev = interface_to_usbdev (intf);
+        printk(KERN_WARNING"CAMERA PLUGGED IN (%04X:%04X) (%s:%u)\n",id->idVendor, id->idProduct,__FUNCTION__, __LINE__);
+        //interface=&(intf->altsetting[0]);
+        if(usb_set_interface(dev, 1, 4))
+            return -ENODEV;
+        usb_set_intfdata (intf, dev);
 
-    usb_set_intfdata (intf, dev);
-    usb_register_dev (intf, &cam_class_driver);
-    usb_set_interface(dev, 1, 4);
+
+        if (usb_register_dev (intf, &cam_class_driver)) {
+            /* something prevented us from registering this driver */
+            dev_err(&intf->dev,
+                    "Not able to get a minor for this device.\n");
+            usb_set_intfdata(intf, NULL);
+            return -ENODEV;
+        }
+
+        /* let the user know what node this device is now attached to */
+        dev_info(&intf->dev,
+                 "USB camera driver device now attached to USB_cam_driver-%d",
+                 intf->minor);
+
+        cam_tool.nb_device++;
+    }
+
+    up(&(cam_tool.SemBuf));
     return 0;
+
 }
 
 /**
@@ -202,10 +251,18 @@ int cam_probe(struct usb_interface *intf, const struct usb_device_id *id){
  * @param intf
  */
 void  cam_disconnect(struct usb_interface *intf){
-   // usb_deregister_dev(&notre_usb_dev);
-    printk(KERN_WARNING"Device disconnected  (%s:%u)\n", __FUNCTION__, __LINE__);
+    down_interruptible(&(cam_tool.SemBuf));
+    if(cam_tool.nb_device!=0){
+        cam_tool.nb_device=0;
+        usb_deregister_dev(intf, &cam_class_driver);
+        printk(KERN_WARNING"Device disconnected  (%s:%u)\n", __FUNCTION__, __LINE__);
+    }
+    up(&(cam_tool.SemBuf));
+
 
 }
+
+
 
 module_init(cam_init);
 module_exit(cam_cleanup);

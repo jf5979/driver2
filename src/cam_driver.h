@@ -1,5 +1,6 @@
-#ifndef cam_H
-#define cam_H
+#ifndef CAM_H
+#define CAM_H
+
 
 #include <linux/module.h>
 #include <linux/init.h>

@@ -14,15 +14,17 @@ echo "3. Desinstalle le pilote"
 read -n1 choix
 
 case $choix in
-  1) sudo /home/jf/ELE784/lab1/cmake-build-debug/LAB1
+  1) sudo /home/jf/ELE784/driver2/cmake-build-debug
   ;;
 
   2) echo " Installation du pilote"
     make clean
     make
+    sudo rmmod uvcvideo #enleve le driver qui vole les cameras
     sudo insmod ./cam_driver.ko
     sudo chmod 666 /dev/cam_node
     sudo mknod /dev/cam_node c 250 0
+
   ;;
   3) echo " Desinstallation du pilote"
         sudo rmmod ./cam_driver.ko
