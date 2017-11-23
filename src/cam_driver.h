@@ -18,6 +18,7 @@
 #include <asm/uaccess.h>
 #include <linux/sched.h>
 #include <linux/usb.h>
+#include <linux/completion.h>
 
 
 /* Use 'W' as magic number */
@@ -34,6 +35,15 @@
 #define IOCTL_PANTILT           _IO(CAM_IOC_MAGIC,  0x60)
 #define IOCTL_PANTILT_RESEST    _IO(CAM_IOC_MAGIC,  0x70)
 
+#define HAUT    1
+#define BAS     2
+#define GAUCHE  3
+#define DROIT   4
+
+#define MY_LENGTH   42666
+#define NB_URBS     5
+
+
 static int cam_init(void);
 
 static void cam_cleanup(void);
@@ -44,11 +54,13 @@ int cam_release (struct inode *inode, struct file *flip);
 
 static ssize_t cam_read(struct file *flip, char __user *ubuf, size_t count, loff_t *f_ops);
 
-long cam_ioctl (struct file *flip, unsigned int cmd, unsigned long arg);
+long cam_ioctl (struct file *file, unsigned int cmd, unsigned long arg);
 
 int cam_probe(struct usb_interface *intf, const struct usb_device_id *id);
 
 void cam_disconnect(struct usb_interface *intf);
+
+void complete_callback(struct urb *urb);
 
 
 #endif

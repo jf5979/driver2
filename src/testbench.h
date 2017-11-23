@@ -19,4 +19,9 @@
 #define IOCTL_PANTILT           _IO(CAM_IOC_MAGIC,  0x60)
 #define IOCTL_PANTILT_RESEST    _IO(CAM_IOC_MAGIC,  0x70)
 
+#define HAUT    1
+#define BAS     2
+#define GAUCHE  3
+#define DROIT   4
+
 #endif //DRIVER2_TESTBENCH_H

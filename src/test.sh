@@ -14,7 +14,7 @@ echo "3. Desinstalle le pilote"
 read -n1 choix
 
 case $choix in
-  1) sudo /home/jf/ELE784/driver2/cmake-build-debug
+  1) sudo /home/jf/ELE784/driver2/cmake-build-debug/LAB2
   ;;
 
   2) echo " Installation du pilote"
@@ -36,7 +36,7 @@ case $choix in
        ;;
   *) echo " choix invalide";;
 esac
-sleep 1s
+sleep 2s
 
 done
 # make -C /usr/src/linux-source-3.16.0 M=`pwd` modules
