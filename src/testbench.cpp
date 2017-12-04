@@ -14,11 +14,12 @@
 #include "dht_data.h"
 
 #include "testbench.h"
+#include "usbvideo.h"
 
 int main(void){
 
     char input=0x00,mode=0;
-    int i=0,nb_char=0,taille=0,retour=0;
+    int i=0,nb_char=0,taille=0,retour=0,param;
     int fp;
     int choix;
     int test[3]={0x01,0x0A,0x05};
@@ -27,6 +28,7 @@ int main(void){
     unsigned char * inBuffer;
     unsigned char * finalBuf;
     unsigned int mySize;
+    int reponse[4];
     inBuffer =(unsigned char *) malloc((42666)* sizeof(unsigned char));
     finalBuf =(unsigned char *) malloc((42666 * 2)* sizeof(unsigned char));
     if((inBuffer == NULL) || (finalBuf == NULL)){
@@ -116,15 +118,80 @@ int main(void){
                 }
                 break;
             case '4':
-
-                break;
-            case '5':
                 fp=open("/dev/cam_node",O_RDWR);
                 if (fp < 0 ) {
                     printf("Error couldnt open the file\n");
                 } else {
-                    std::cout<<"Focus reset with value : "<<ioctl(fp,IOCTL_SET,test)<<"\n";
+                    std::cout<<"Listing all Processing Unit Control Selectors value :\n";
+                    std::cout<<"valeur\t\tCurrent\t\tMin\t\tMax\t\tRes\n";
+                    for(int i=0;i<=0x12;i++){
+                        reponse[0]=i;
+                        ioctl(fp,IOCTL_GET,reponse);
+                        if(reponse[0]<0){
+                            printf("Data not available on this device\n");
+                        }
+                        else{
+                            printf("%d\t\t%d\t\t%d\t\t%d\t\t%d\n",i,reponse[0],reponse[1],reponse[2],reponse[3]);
+                        }
+
+                    }
+
                     close(fp);
+                }
+
+                break;
+            case '5':
+            std::cout<<"Veuillez entrer le parametre que vous voulez modifier (0-18)\n";
+                std::cin>>param;
+                reponse[0]=param;
+                     switch(param){
+                         case 0: std::cout<<"PU_CONTROL_UNDEFINED please set value\n";
+                             std::cin>>param;
+                             break;
+                         case 1: std::cout<<"PU_BACKLIGHT_COMPENSATION_VALUE please set value\n";
+                             std::cin>>param;
+                             break;
+                         case 2:std::cout<<"PU_BRIGHTNESS_CONTROL please set value\n";
+                             std::cin>>param;
+                             break;
+                         case 3:std::cout<<"PU_CONTRAST_CONTROL please set value\n";
+                             std::cin>>param;
+                             break;
+                         case 4:std::cout<<"PU_GAIN_CONTROL please set value\n";
+                             std::cin>>param;
+                             break;
+                         case 5:std::cout<<"PU_POWER_LINE_FREQUENCY_CONTROL please set value\n";
+                             std::cin>>param;
+                             break;
+                         case 7:std::cout<<"PU_SATURATION_CONTROL please set value\n";
+                             std::cin>>param;
+                             break;
+                         case 8:std::cout<<"PU_SHARPNESS_CONTROL please set value\n";
+                             std::cin>>param;
+                             break;
+                         case 10:std::cout<<"PU_WHITE_BALANCE_TEMPERATURE_CONTROL please set value\n";
+                             std::cin>>param;
+                             break;
+                         case 11:std::cout<<"PU_WHITE_BALANCE_TEMPERATURE_AUTO_CONTROL please set value\n";
+                             std::cin>>param;
+                             break;
+                         default:
+                             std::cout<<"Choix invalide pour lappareil\n";
+                             param =-1;
+                             break;
+                     }
+                if(param >=0){
+                    reponse[1]=param>>8;
+                    reponse[2]=param&0x00FF;
+                    fp=open("/dev/cam_node",O_RDWR);
+                    if (fp < 0 ) {
+                        printf("Error couldnt open the file\n");
+                    } else {
+                        if(ioctl(fp,IOCTL_SET,reponse)>=0){
+                            printf("Register %d was set successfully with value %d",reponse[0],((reponse[1]<<8)&reponse[2]));
+                        }
+                        close(fp);
+                    }
                 }
                 break;
             default:

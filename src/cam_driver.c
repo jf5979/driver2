@@ -21,11 +21,10 @@ typedef struct cam_Dev {
     struct usb_interface *cam_int;
     unsigned int myStatus;
     unsigned int myLengthUsed;
-    char myData[MY_LENGTH];
+    char * myData;
     unsigned int urb_completed;
-    struct urb * myUrb[5];
 } CAMDev;
-
+struct urb * myUrb[5];
 static struct usb_device_id cam_ids[] = {
         {USB_DEVICE(0x046d, 0x0994)},
         {USB_DEVICE(0x1871, 0x0101)},//personnal webcam for testing
@@ -71,11 +70,12 @@ static int __init cam_init (void) {
     //Initialisation des variables importantes :
     cam_tool.nb_device=0;
     cam_tool.urb_completed=0;
+    cam_tool.myData=NULL;
     init_completion(&urb_completed);
     sema_init(&(cam_tool.SemBuf),0);
     up(&(cam_tool.SemBuf));
     for(i=0;i<NB_URBS;i++){
-        cam_tool.myUrb[i]=NULL;
+         myUrb[i]=NULL;
     }
     cam_tool.dev=MKDEV(250,0);
     if (!MAJOR(cam_tool.dev)) {
@@ -168,16 +168,23 @@ static ssize_t cam_read(struct file *flip, char __user *ubuf, size_t count, loff
     intf=flip->private_data;
     dev= usb_get_intfdata(intf);
 
-    wait_for_completion(&urb_completed);
+    wait_for_completion_interruptible(&urb_completed);
+
+    printk(KERN_ALERT"Data value urb_complete %d my_status %d",cam_tool.urb_completed,cam_tool.myStatus);
+
+    urb_completed.done=0;
+    cam_tool.urb_completed=0;
+    cam_tool.myStatus=0;
 
     printk(KERN_WARNING"DANS la fonction read(%s:%u)\n", __FUNCTION__, __LINE__);
     copied=copy_to_user(ubuf, cam_tool.myData, cam_tool.myLengthUsed);
     for (i = 0; i < NB_URBS; i++) {
-        usb_kill_urb(cam_tool.myUrb[i]);
-        usb_free_coherent(cam_usb_device, cam_tool.myUrb[i]->transfer_buffer_length, cam_tool.myUrb[i]->transfer_buffer,cam_tool.myUrb[i]->transfer_dma);
-        usb_free_urb(cam_tool.myUrb[i]);
-        cam_tool.myUrb[i]=NULL;
+        usb_kill_urb( myUrb[i]);
+        usb_free_coherent(cam_usb_device,  myUrb[i]->transfer_buffer_length,  myUrb[i]->transfer_buffer, myUrb[i]->transfer_dma);
+        usb_free_urb( myUrb[i]);
+         myUrb[i]=NULL;
     }
+    kfree(cam_tool.myData);
     copied=cam_tool.myLengthUsed-copied;
     cam_tool.myLengthUsed=0;
    // printk(KERN_ALERT"")
@@ -200,7 +207,10 @@ long cam_ioctl (struct file *file, unsigned int cmd, unsigned long arg){
     unsigned char commande[4]={0x00,0x00,0x00,0x00};
     struct usb_host_interface * cur_altsetting;
     struct usb_endpoint_descriptor endpointDesc;
-    int * allo;
+    int reponse[4];
+    char command;
+    int teste[2]={0x30,0x30};
+
 
     printk(KERN_ALERT"DANS ioctl\n");
 //    int usb_control_msg(struct usb_device *dev, unsigned int pipe,
@@ -209,16 +219,59 @@ long cam_ioctl (struct file *file, unsigned int cmd, unsigned long arg){
 //                        void *data, __u16 size, int timeout);
     switch(cmd){
         case IOCTL_GET:
-            //return usb_control_msg(dev,usb_rcvctrlpipe(dev,0),0x0B,
-//                                   (USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_INTERFACE),
-//                                   0x0000,0x0200,NULL,2,0);
-            return 0;
+//            for(i=0;i<4;i++0)
+            if(copy_from_user(reponse,(char*)arg,1)==0){
+                command=reponse[0];
+                ret=usb_control_msg(dev,usb_rcvctrlpipe(dev,0),GET_CUR,
+                                   (USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE),
+                                   command<<8,0x0200,teste,2,0);
+                if(ret<0){
+                    reponse[0]=ret;
+                } else{
+                    reponse[0]=teste[0]<<8|teste[1];
+                }
+                ret=usb_control_msg(dev,usb_rcvctrlpipe(dev,0),GET_MIN,
+                                           (USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE),
+                                           command<<8,0x0200,teste,2,0);
+                if(ret<0){
+                    reponse[1]=ret;
+                } else{
+                    reponse[1]=teste[0]<<8|teste[1];
+                }
+                ret=usb_control_msg(dev,usb_rcvctrlpipe(dev,0),GET_MAX,
+                                           (USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE),
+                                           command<<8,0x0200,teste,2,0);
+                if(ret<0){
+                    reponse[2]=ret;
+                } else{
+                    reponse[2]=teste[0]<<8|teste[1];
+                }
+                ret=usb_control_msg(dev,usb_rcvctrlpipe(dev,0),GET_RES,
+                                           (USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE),
+                                           command<<8,0x0200,teste,2,0);
+                if(ret<0){
+                    reponse[3]=ret;
+                } else{
+                    reponse[3]=teste[0]<<8|teste[1];
+                }
+
+                if(copy_to_user((char*)arg,reponse,4)==0){
+                    return 0;
+                }
+                else{
+                    return -ENOEXEC;
+                }
+            }
+            else{
+                return -ENODATA;
+            }
         case IOCTL_SET:
-            allo=(int *)arg;
-            printk(KERN_ALERT"TESTONS LHYPOTHESE %d %d %d",allo[0],allo[1],allo[2]);
-//            return usb_control_msg(dev, usb_sndctrlpipe(dev,0),0x0B,
-//                                   (USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_INTERFACE),
-//                                   0x0004,0x0001,NULL,0,0);
+            if (copy_from_user(reponse, (char *) arg, 3) == 0) {
+                return usb_control_msg(dev, usb_sndctrlpipe(dev, 0), SET_CUR,
+                                       (USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE),
+                                       (reponse[0]<<8), 0x0200, &(reponse[1]), 2, 0);
+            }
+
         case IOCTL_STREAMON:
             printk(KERN_ALERT"STREAMON\n");
             return  usb_control_msg(dev, usb_sndctrlpipe(dev,0),0x0B,
@@ -230,11 +283,13 @@ long cam_ioctl (struct file *file, unsigned int cmd, unsigned long arg){
                                     (USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_INTERFACE),
                                     0x0000,0x0001,NULL,0,0);
         case IOCTL_GRAB:
-            if(down_trylock(&(cam_tool.SemBuf))){
-                printk(KERN_ALERT"Cannot get the semaphore");
-                return -ENOTTY;
-            }
+            init_completion(&urb_completed);
             printk(KERN_ALERT"GRAB\n");
+            cam_tool.myData=kmalloc(sizeof(char)*MY_LENGTH,GFP_KERNEL);
+            if(cam_tool.myData==NULL){
+                return -ENOEXEC;
+            }
+
             cam_tool.myStatus=0;
             cam_tool.urb_completed=0;
             cam_tool.myLengthUsed=0;
@@ -246,40 +301,39 @@ long cam_ioctl (struct file *file, unsigned int cmd, unsigned long arg){
             size = myPacketSize * nbPackets;
 
             for (i = 0; i < NB_URBS; ++i) {
-                usb_free_urb(cam_tool.myUrb[i]); // Pour être certain
+                usb_free_urb( myUrb[i]); // Pour être certain
 
-                cam_tool.myUrb[i] = usb_alloc_urb(nbPackets,GFP_KERNEL);
+                 myUrb[i] = usb_alloc_urb(nbPackets,GFP_ATOMIC);
 
-                if (cam_tool.myUrb[i] == NULL) {
+                if ( myUrb[i] == NULL) {
                     printk(KERN_WARNING "Unable to assign memory (%s:%u)\n", __FUNCTION__, __LINE__);
                     return -ENOMEM;
                 }
-                cam_tool.myUrb[i]->transfer_buffer = usb_alloc_coherent(dev,size,GFP_KERNEL,&(cam_tool.myUrb[i]->transfer_dma));
+                 myUrb[i]->transfer_buffer = usb_alloc_coherent(cam_usb_device,size,GFP_ATOMIC,&( myUrb[i]->transfer_dma));
 
-                if (cam_tool.myUrb[i]->transfer_buffer == NULL) {
+                if ( myUrb[i]->transfer_buffer == NULL) {
                     printk(KERN_WARNING "Unable to assign (%s:%u)\n", __FUNCTION__, __LINE__);
-                    usb_free_coherent(dev,size,&(endpointDesc.bEndpointAddress),cam_tool.myUrb[i]->transfer_dma);
+                    usb_free_coherent(cam_usb_device,size,&(endpointDesc.bEndpointAddress), myUrb[i]->transfer_dma);
                     return -ENOMEM;
                 }
-                cam_tool.myUrb[i]->dev = dev;
-                cam_tool.myUrb[i]->context = (CAMDev *) &cam_tool;
-                cam_tool.myUrb[i]->pipe = usb_rcvisocpipe(dev, endpointDesc.bEndpointAddress);
-                cam_tool.myUrb[i]->transfer_flags = URB_ISO_ASAP | URB_NO_TRANSFER_DMA_MAP;
-                cam_tool.myUrb[i]->interval = endpointDesc.bInterval;
-                cam_tool.myUrb[i]->complete = complete_callback;
-                cam_tool.myUrb[i]->number_of_packets = nbPackets;
-                cam_tool.myUrb[i]->transfer_buffer_length = size;
+                 myUrb[i]->dev = cam_usb_device;
+                 myUrb[i]->context = (CAMDev *) &cam_tool;
+                 myUrb[i]->pipe = usb_rcvisocpipe(cam_usb_device, endpointDesc.bEndpointAddress);
+                 myUrb[i]->transfer_flags = URB_ISO_ASAP | URB_NO_TRANSFER_DMA_MAP;
+                 myUrb[i]->interval = endpointDesc.bInterval;
+                 myUrb[i]->complete = &complete_callback;
+                 myUrb[i]->number_of_packets = nbPackets;
+                 myUrb[i]->transfer_buffer_length = size;
                 for (j = 0; j < nbPackets; ++j) {
-                    cam_tool.myUrb[i]->iso_frame_desc[j].offset = j * myPacketSize;
-                    cam_tool.myUrb[i]->iso_frame_desc[j].length = myPacketSize;
+                     myUrb[i]->iso_frame_desc[j].offset = j * myPacketSize;
+                     myUrb[i]->iso_frame_desc[j].length = myPacketSize;
                 }
             }
-            up(&(cam_tool.SemBuf));
             printk(KERN_ALERT"Going to submit");
             for(i = 0; i < NB_URBS; i++){
-                if ((ret = usb_submit_urb(cam_tool.myUrb[i],GFP_KERNEL)) < 0) {
+                if ((ret = usb_submit_urb( myUrb[i],GFP_ATOMIC)) < 0) {
                     printk(KERN_ALERT"Cannot submit urb : number %d error code %d",i,ret);
-                    up(&(cam_tool.SemBuf));
+
                     return ret;
                 }
             }
@@ -400,23 +454,28 @@ void complete_callback(struct urb *urb){
     void * mem;
     CAMDev * cam_tool_2;
     cam_tool_2 = (CAMDev *) (urb->context);
-    printk(KERN_ALERT"Dans callback");
+    //printk(KERN_ALERT"urb_status %d Mystatus %d Nb_com %d nb packet %d ",urb->status,cam_tool_2->myStatus,cam_tool_2->urb_completed,urb->number_of_packets );
     if(urb->status == 0){
-
+    printk(KERN_ALERT"Valeur au debut LenUsed %d Mylengt %d nbpacket %d",cam_tool_2->myLengthUsed,MY_LENGTH,urb->number_of_packets );
         for (i = 0; i < urb->number_of_packets; ++i) {
+
             if(cam_tool_2->myStatus == 1){
+                printk(KERN_WARNING"Exit 1");
                 continue;
             }
             if (urb->iso_frame_desc[i].status < 0) {
+                printk(KERN_WARNING"Error ins transfer error code is %d",urb->iso_frame_desc[i].status);
                 continue;
             }
 
             data = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
             if(data[1] & (1 << 6)){
+                printk(KERN_WARNING"Exit 3");
                 continue;
             }
             len = urb->iso_frame_desc[i].actual_length;
             if (len < 2 || data[0] < 2 || data[0] > len){
+                printk(KERN_WARNING"Exit 4");
                 continue;
             }
 
@@ -436,7 +495,7 @@ void complete_callback(struct urb *urb){
                 cam_tool_2->myStatus = 1; // DONE
             }
         }
-
+        printk(KERN_ALERT"Boucle terminee Status %d Len %d Maxlen %d nbytes %d ",cam_tool_2->myStatus, len,maxlen,nbytes);
         if (!(cam_tool_2->myStatus == 1)){
             if ((ret = usb_submit_urb(urb, GFP_ATOMIC)) < 0) {
                 printk(KERN_WARNING "Fucked up at almost completion");
@@ -445,7 +504,7 @@ void complete_callback(struct urb *urb){
             /**
              * Partie du code dans laquelle il faut synchroniser avec read
              */
-
+            printk(KERN_ALERT"En train d'incrementer urb_completed");
              cam_tool_2->urb_completed++;
                 if(cam_tool_2->urb_completed>=5){
                     cam_tool_2->urb_completed=0;
