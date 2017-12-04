@@ -45,8 +45,8 @@ int main(void){
     std::cout << "\033[2J\033[1;1H";
     while(1){
         // std::cout << "\033[2J\033[1;1H";
-        std::cout<<"1. Prendre une photo\n2. Bouger le focus\n3."
-                <<"Reset Focus\n4. Get parameter\n5. Set parameter\n6. Grab Data\n";
+        std::cout<<"1. Prendre une photo\n2. Bouger le focus\n3. "
+                <<"Reset Focus\n4. Get parameter\n5. Set parameter\n";
         std::cin>>input;
         switch (input) {
             case '1' :
