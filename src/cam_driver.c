@@ -23,6 +23,7 @@ typedef struct cam_Dev {
     unsigned int myLengthUsed;
     char * myData;
     unsigned int urb_completed;
+    unsigned int minor_number;
 } CAMDev;
 struct urb * myUrb[5];
 static struct usb_device_id cam_ids[] = {
@@ -65,43 +66,44 @@ static DECLARE_WAIT_QUEUE_HEAD(reading_queue);
  *
  */
 static int __init cam_init (void) {
-    int result=0,i;
-    printk(KERN_ALERT"cam_init (%s:%u) => Initialising camera driver\n", __FUNCTION__, __LINE__);
-    //Initialisation des variables importantes :
-    cam_tool.nb_device=0;
-    cam_tool.urb_completed=0;
-    cam_tool.myData=NULL;
-    init_completion(&urb_completed);
-    sema_init(&(cam_tool.SemBuf),0);
-    up(&(cam_tool.SemBuf));
-    for(i=0;i<NB_URBS;i++){
-         myUrb[i]=NULL;
-    }
-    cam_tool.dev=MKDEV(250,0);
-    if (!MAJOR(cam_tool.dev)) {
-        result = alloc_chrdev_region(&(cam_tool.dev), MINOR(cam_tool.dev), 0, "my_cam");
-    }
-    else {
-        result = register_chrdev_region(cam_tool.dev, 0, "my_cam");
-    }
-    if (result < 0)
-        printk(KERN_ALERT"cam_init ERROR IN regist_chrdev_region error code is : %d (%s:%s:%u)\n", result,__FILE__, __FUNCTION__, __LINE__);
-    else
-        printk(KERN_ALERT"cam_init : MAJOR = %u MINOR = %u (cam_Var = %u)\n", MAJOR(cam_tool.dev), MINOR(cam_tool.dev), cam_Var);
-
-    cam_class = class_create(THIS_MODULE, "cam_class");
-    device_create(cam_class, NULL, cam_tool.dev, NULL, "cam_node");
-    cdev_init(&(cam_tool.cdev), &cam_fops);
-    cam_tool.cdev.owner = THIS_MODULE;
-    if (cdev_add(&(cam_tool.cdev), cam_tool.dev, 1) < 0)
-        printk(KERN_ALERT"cam_init ERROR IN cdev_add (%s:%s:%u)\n", __FILE__, __FUNCTION__, __LINE__);
+    int result=0;
+//    printk(KERN_ALERT"cam_init (%s:%u) => Initialising camera driver\n", __FUNCTION__, __LINE__);
+//    //Initialisation des variables importantes :
+//    cam_tool.nb_device=0;
+//    cam_tool.urb_completed=0;
+//    cam_tool.myData=NULL;
+//    init_completion(&urb_completed);
+//    sema_init(&(cam_tool.SemBuf),0);
+//    up(&(cam_tool.SemBuf));
+//
+//    for(i=0;i<NB_URBS;i++){
+//         myUrb[i]=NULL;
+//    }
+//    cam_tool.dev=MKDEV(250,0);
+//    if (!MAJOR(cam_tool.dev)) {
+//        result = alloc_chrdev_region(&(cam_tool.dev), MINOR(cam_tool.dev), 0, "my_cam");
+//    }
+//    else {
+//        result = register_chrdev_region(cam_tool.dev, 0, "my_cam");
+//    }
+//    if (result < 0)
+//        printk(KERN_ALERT"cam_init ERROR IN regist_chrdev_region error code is : %d (%s:%s:%u)\n", result,__FILE__, __FUNCTION__, __LINE__);
+//    else
+//        printk(KERN_ALERT"cam_init : MAJOR = %u MINOR = %u (cam_Var = %u)\n", MAJOR(cam_tool.dev), MINOR(cam_tool.dev), cam_Var);
+//
+//    cam_class = class_create(THIS_MODULE, "cam_class");
+//    device_create(cam_class, NULL, cam_tool.dev, NULL, "cam_node");
+//    cdev_init(&(cam_tool.cdev), &cam_fops);
+//    cam_tool.cdev.owner = THIS_MODULE;
+//    if (cdev_add(&(cam_tool.cdev), cam_tool.dev, 1) < 0)
+//        printk(KERN_ALERT"cam_init ERROR IN cdev_add (%s:%s:%u)\n", __FILE__, __FUNCTION__, __LINE__);
 
 //
-    result=usb_register(&cam_driver);
-    if(result){
-        printk(KERN_ALERT"Wasn't able to register USB driver (%s:%u)\n", __FUNCTION__, __LINE__);
-        return result;
-    }
+//    result=usb_register(&cam_driver);
+//    if(result){
+//        printk(KERN_ALERT"Wasn't able to register USB driver (%s:%u)\n", __FUNCTION__, __LINE__);
+//        return result;
+//    }
 
 
 
@@ -113,13 +115,10 @@ static int __init cam_init (void) {
  *
  */
 static void __exit cam_cleanup (void) {
-    usb_deregister(&cam_driver);
-    cdev_del(&(cam_tool.cdev));
-    unregister_chrdev_region(cam_tool.dev, 0);
-    device_destroy (cam_class, cam_tool.dev);
-    class_destroy(cam_class);
-
-    printk(KERN_ALERT "cam_cleanup (%s:%u) => Module unloaded successfully\n", __FUNCTION__, __LINE__);
+//    usb_deregister(&cam_driver);
+//
+//
+//    printk(KERN_ALERT "cam_cleanup (%s:%u) => Module unloaded successfully\n", __FUNCTION__, __LINE__);
 }
 
 /**
@@ -133,7 +132,7 @@ int cam_open(struct inode *inode, struct file *filp) {
     int subminor;
     printk(KERN_WARNING "ELE784 -> Open (%s:%u)\n", __FUNCTION__, __LINE__);
     //subminor = iminor(inode);
-    subminor =2;
+    subminor =cam_tool.minor_number;
     cam_int_temp = usb_find_interface(&cam_driver, subminor);
     if (!cam_int_temp) {
         printk(KERN_WARNING "ELE784 -> Open: Ne peux ouvrir le peripherique iminor %d (%s:%u)\n",subminor, __FUNCTION__, __LINE__);
@@ -379,7 +378,7 @@ long cam_ioctl (struct file *file, unsigned int cmd, unsigned long arg){
 
 int cam_probe(struct usb_interface *intf, const struct usb_device_id *id){
     struct usb_device *dev = interface_to_usbdev(intf);
-    int retval = -ENOMEM;
+    int retval = -ENOMEM,i=0,result;
     cam_usb_device = NULL;
 
     if (intf->altsetting->desc.bInterfaceClass == CC_VIDEO)
@@ -388,6 +387,39 @@ int cam_probe(struct usb_interface *intf, const struct usb_device_id *id){
             return 0;
         if (intf->altsetting->desc.bInterfaceSubClass == SC_VIDEOSTREAMING)
         {
+            //Char driver pour la communication avec le USB-device
+            printk(KERN_ALERT"cam_probe (%s:%u) => Initialising camera driver\n", __FUNCTION__, __LINE__);
+            //Initialisation des variables importantes :
+            cam_tool.nb_device=0;
+            cam_tool.urb_completed=0;
+            cam_tool.myData=NULL;
+            init_completion(&urb_completed);
+            sema_init(&(cam_tool.SemBuf),0);
+            up(&(cam_tool.SemBuf));
+
+            for(i=0;i<NB_URBS;i++){
+                myUrb[i]=NULL;
+            }
+            cam_tool.dev=MKDEV(250,0);
+            if (!MAJOR(cam_tool.dev)) {
+                result = alloc_chrdev_region(&(cam_tool.dev), MINOR(cam_tool.dev), 0, "my_cam");
+            }
+            else {
+                result = register_chrdev_region(cam_tool.dev, 0, "my_cam");
+            }
+            if (result < 0)
+                printk(KERN_ALERT"cam_probe ERROR IN regist_chrdev_region error code is : %d (%s:%s:%u)\n", result,__FILE__, __FUNCTION__, __LINE__);
+            else
+            printk(KERN_ALERT"cam_probe : MAJOR = %u MINOR = %u (cam_Var = %u)\n", MAJOR(cam_tool.dev), MINOR(cam_tool.dev), cam_Var);
+
+            cam_class = class_create(THIS_MODULE, "cam_class");
+            device_create(cam_class, NULL, cam_tool.dev, NULL, "cam_node");
+            cdev_init(&(cam_tool.cdev), &cam_fops);
+            cam_tool.cdev.owner = THIS_MODULE;
+            if (cdev_add(&(cam_tool.cdev), cam_tool.dev, 1) < 0)
+                printk(KERN_ALERT"cam_probe ERROR IN cdev_add (%s:%s:%u)\n", __FILE__, __FUNCTION__, __LINE__);
+
+
             /* allocate memory for our device state and initialize it */
             cam_usb_device = kmalloc(sizeof(struct usb_device), GFP_KERNEL);
             if(cam_usb_device == NULL)
@@ -407,9 +439,14 @@ int cam_probe(struct usb_interface *intf, const struct usb_device_id *id){
             }
             down_interruptible(&(cam_tool.SemBuf));
             cam_tool.nb_device+=1;
+            cam_tool.minor_number=intf->minor;
             up(&(cam_tool.SemBuf));
             usb_set_interface(dev, 1, 4);
             printk(KERN_WARNING "usbcam device now attached to usbcam-%d\n", intf->minor);
+
+
+
+
         }
         else
             retval = -ENODEV;
@@ -438,6 +475,11 @@ void  cam_disconnect(struct usb_interface *intf){
                 printk(KERN_WARNING"Device disconnected  (%s:%u)\n", __FUNCTION__, __LINE__);
             }
             up(&(cam_tool.SemBuf));
+            cdev_del(&(cam_tool.cdev));
+            unregister_chrdev_region(cam_tool.dev, 0);
+            device_destroy (cam_class, cam_tool.dev);
+            class_destroy(cam_class);
+//            usb_deregister(&cam_driver);
         }
     }
 
@@ -519,7 +561,8 @@ void complete_callback(struct urb *urb){
     }
 }
 
-module_init(cam_init);
-module_exit(cam_cleanup);
+//module_init(cam_init);
+//module_exit(cam_cleanup);
+module_usb_driver(cam_driver);
 
       	
