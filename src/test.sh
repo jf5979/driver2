@@ -14,7 +14,7 @@ echo "3. Desinstalle le pilote"
 read -n1 choix
 
 case $choix in
-  1) sudo /home/jf/ELE784/driver2/cmake-build-debug/LAB2
+  1) sudo ./LAB2
   ;;
 
   2) echo " Installation du pilote"

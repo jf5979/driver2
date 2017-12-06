@@ -2,6 +2,9 @@ Laboratoire 2 par Jean-Francois Penven, Vincent Gosselin, 2017.
 
 Usb driver in linux for a Camera.
 
+Pour lancer l'application, naviguer dans le dossier src et lancer le script test.sh
+
+
 
 Au moment de la remise, l'etat de la situation est :
 
@@ -32,4 +35,7 @@ Cest pour cela que le commit fut ignorer dans la remise.
 
 
 Pour voir le code, il est disponible sur github user jf5979 projet driver2
+
+
+
 
