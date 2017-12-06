@@ -1,8 +1,6 @@
 #include "cam_driver.h"
 #include "usbvideo.h"
 
-
-
 MODULE_LICENSE("Dual BSD/GPL");
 
 int cam_Var = 0;
@@ -23,6 +21,7 @@ typedef struct cam_Dev {
     unsigned int myLengthUsed;
     char * myData;
     unsigned int urb_completed;
+    unsigned int cam_minor;
 } CAMDev;
 struct urb * myUrb[5];
 static struct usb_device_id cam_ids[] = {
@@ -74,9 +73,11 @@ static int __init cam_init (void) {
     init_completion(&urb_completed);
     sema_init(&(cam_tool.SemBuf),0);
     up(&(cam_tool.SemBuf));
+
     for(i=0;i<NB_URBS;i++){
          myUrb[i]=NULL;
     }
+
     cam_tool.dev=MKDEV(250,0);
     if (!MAJOR(cam_tool.dev)) {
         result = alloc_chrdev_region(&(cam_tool.dev), MINOR(cam_tool.dev), 0, "my_cam");
@@ -96,7 +97,6 @@ static int __init cam_init (void) {
     if (cdev_add(&(cam_tool.cdev), cam_tool.dev, 1) < 0)
         printk(KERN_ALERT"cam_init ERROR IN cdev_add (%s:%s:%u)\n", __FILE__, __FUNCTION__, __LINE__);
 
-//
     result=usb_register(&cam_driver);
     if(result){
         printk(KERN_ALERT"Wasn't able to register USB driver (%s:%u)\n", __FUNCTION__, __LINE__);
@@ -132,8 +132,7 @@ int cam_open(struct inode *inode, struct file *filp) {
     struct usb_interface * cam_int_temp;
     int subminor;
     printk(KERN_WARNING "ELE784 -> Open (%s:%u)\n", __FUNCTION__, __LINE__);
-    //subminor = iminor(inode);
-    subminor =2;
+    subminor =cam_tool.cam_minor;
     cam_int_temp = usb_find_interface(&cam_driver, subminor);
     if (!cam_int_temp) {
         printk(KERN_WARNING "ELE784 -> Open: Ne peux ouvrir le peripherique iminor %d (%s:%u)\n",subminor, __FUNCTION__, __LINE__);
@@ -154,7 +153,7 @@ int cam_release(struct inode *inode, struct file *filp) {
 }
 
 /**
- * @brief cam_read Fonction permettant la lecture de donnes dans le buffer
+ * @brief cam_read Fonction permettant la lecture de donnes graphique
  * @param flip Pointeur vers la structure file du fichier
  * @param ubuf Pointeur vers le buffer de lecture du user space
  * @param count Nombre de charactere a lire
@@ -187,17 +186,16 @@ static ssize_t cam_read(struct file *flip, char __user *ubuf, size_t count, loff
     kfree(cam_tool.myData);
     copied=cam_tool.myLengthUsed-copied;
     cam_tool.myLengthUsed=0;
-   // printk(KERN_ALERT"")
 
     return (ssize_t) copied;
 
 }
 
 /**
- * @brief cam_ioctl Fonction permettant l'obtention et la modification de donnees sur le buffer
+ * @brief cam_ioctl Fonction permettant l'interaction avec le peripherique USB
  * @param flip Pointeur vers la structure file du driver
- * @param cmd Commande pour la fonction ioctl defini dans buf.h
- * @param arg argument pour la taille du nouveau buffer
+ * @param cmd Commande pour la fonction ioctl defini dans cam_driver.h
+ * @param arg argument pour les differentes commandes
  * @return retourne le parametre desirer ou un code d'erreur si la commande est inexistante
  */
 long cam_ioctl (struct file *file, unsigned int cmd, unsigned long arg){
@@ -211,15 +209,8 @@ long cam_ioctl (struct file *file, unsigned int cmd, unsigned long arg){
     char command;
     int teste[2]={0x30,0x30};
 
-
-    printk(KERN_ALERT"DANS ioctl\n");
-//    int usb_control_msg(struct usb_device *dev, unsigned int pipe,
-//                        __u8 request, __u8 requesttype,
-//                        __u16 value, __u16 index,
-//                        void *data, __u16 size, int timeout);
     switch(cmd){
         case IOCTL_GET:
-//            for(i=0;i<4;i++0)
             if(copy_from_user(reponse,(char*)arg,1)==0){
                 command=reponse[0];
                 ret=usb_control_msg(dev,usb_rcvctrlpipe(dev,0),GET_CUR,
@@ -306,13 +297,11 @@ long cam_ioctl (struct file *file, unsigned int cmd, unsigned long arg){
                  myUrb[i] = usb_alloc_urb(nbPackets,GFP_ATOMIC);
 
                 if ( myUrb[i] == NULL) {
-                    printk(KERN_WARNING "Unable to assign memory (%s:%u)\n", __FUNCTION__, __LINE__);
                     return -ENOMEM;
                 }
                  myUrb[i]->transfer_buffer = usb_alloc_coherent(cam_usb_device,size,GFP_ATOMIC,&( myUrb[i]->transfer_dma));
 
                 if ( myUrb[i]->transfer_buffer == NULL) {
-                    printk(KERN_WARNING "Unable to assign (%s:%u)\n", __FUNCTION__, __LINE__);
                     usb_free_coherent(cam_usb_device,size,&(endpointDesc.bEndpointAddress), myUrb[i]->transfer_dma);
                     return -ENOMEM;
                 }
@@ -329,7 +318,6 @@ long cam_ioctl (struct file *file, unsigned int cmd, unsigned long arg){
                      myUrb[i]->iso_frame_desc[j].length = myPacketSize;
                 }
             }
-            printk(KERN_ALERT"Going to submit");
             for(i = 0; i < NB_URBS; i++){
                 if ((ret = usb_submit_urb( myUrb[i],GFP_ATOMIC)) < 0) {
                     printk(KERN_ALERT"Cannot submit urb : number %d error code %d",i,ret);
@@ -337,7 +325,6 @@ long cam_ioctl (struct file *file, unsigned int cmd, unsigned long arg){
                     return ret;
                 }
             }
-            printk(KERN_ALERT"Submitted completely");
             return 0;
         case IOCTL_PANTILT:
             switch (arg){
@@ -372,16 +359,17 @@ long cam_ioctl (struct file *file, unsigned int cmd, unsigned long arg){
 }
 /**
  * @brief   Function Probe afin de verifier la compatibilite du device usb (extrait de ELE784 cours 5 p.27-28)
- * @param intf
- * @param id
- * @return
+ * @param intf l'interface usb qui correspond au pilote
+ * @param id identifiant du peripherique usb
+ * @return retourne le code derreur ou 0 en cas de reussite
  */
 
 int cam_probe(struct usb_interface *intf, const struct usb_device_id *id){
     struct usb_device *dev = interface_to_usbdev(intf);
     int retval = -ENOMEM;
     cam_usb_device = NULL;
-
+    //les 3 premiers IF ont ete fortement inspirer par le travail
+    //d'un collegue sur github https://github.com/ELE784/USB_Driver/blob/master/usbcam.c
     if (intf->altsetting->desc.bInterfaceClass == CC_VIDEO)
     {
         if (intf->altsetting->desc.bInterfaceSubClass == SC_VIDEOCONTROL)
@@ -410,6 +398,7 @@ int cam_probe(struct usb_interface *intf, const struct usb_device_id *id){
             up(&(cam_tool.SemBuf));
             usb_set_interface(dev, 1, 4);
             printk(KERN_WARNING "usbcam device now attached to usbcam-%d\n", intf->minor);
+            cam_tool.cam_minor=intf->minor;
         }
         else
             retval = -ENODEV;
@@ -424,7 +413,7 @@ int cam_probe(struct usb_interface *intf, const struct usb_device_id *id){
 
 
 /**
- *
+ *@brief Fonction s'ocupant de la deconnection du peripherique
  * @param intf
  */
 void  cam_disconnect(struct usb_interface *intf){
@@ -443,6 +432,10 @@ void  cam_disconnect(struct usb_interface *intf){
 
 }
 
+/**
+ * @brief Fonction s'occupant du retour du urb
+ * @param urb le urb soumit
+ */
 void complete_callback(struct urb *urb){
 
     int ret;
@@ -454,13 +447,10 @@ void complete_callback(struct urb *urb){
     void * mem;
     CAMDev * cam_tool_2;
     cam_tool_2 = (CAMDev *) (urb->context);
-    //printk(KERN_ALERT"urb_status %d Mystatus %d Nb_com %d nb packet %d ",urb->status,cam_tool_2->myStatus,cam_tool_2->urb_completed,urb->number_of_packets );
     if(urb->status == 0){
-    printk(KERN_ALERT"Valeur au debut LenUsed %d Mylengt %d nbpacket %d",cam_tool_2->myLengthUsed,MY_LENGTH,urb->number_of_packets );
         for (i = 0; i < urb->number_of_packets; ++i) {
 
             if(cam_tool_2->myStatus == 1){
-                printk(KERN_WARNING"Exit 1");
                 continue;
             }
             if (urb->iso_frame_desc[i].status < 0) {
@@ -470,12 +460,10 @@ void complete_callback(struct urb *urb){
 
             data = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
             if(data[1] & (1 << 6)){
-                printk(KERN_WARNING"Exit 3");
                 continue;
             }
             len = urb->iso_frame_desc[i].actual_length;
             if (len < 2 || data[0] < 2 || data[0] > len){
-                printk(KERN_WARNING"Exit 4");
                 continue;
             }
 
@@ -495,16 +483,14 @@ void complete_callback(struct urb *urb){
                 cam_tool_2->myStatus = 1; // DONE
             }
         }
-        printk(KERN_ALERT"Boucle terminee Status %d Len %d Maxlen %d nbytes %d ",cam_tool_2->myStatus, len,maxlen,nbytes);
         if (!(cam_tool_2->myStatus == 1)){
             if ((ret = usb_submit_urb(urb, GFP_ATOMIC)) < 0) {
-                printk(KERN_WARNING "Fucked up at almost completion");
+                printk(KERN_WARNING "Failed to submit in callback");
             }
         }else{
             /**
              * Partie du code dans laquelle il faut synchroniser avec read
              */
-            printk(KERN_ALERT"En train d'incrementer urb_completed");
              cam_tool_2->urb_completed++;
                 if(cam_tool_2->urb_completed>=5){
                     cam_tool_2->urb_completed=0;
@@ -512,10 +498,9 @@ void complete_callback(struct urb *urb){
                     complete(&urb_completed);
                 }
              cam_tool_2->myStatus=0;
-            printk(KERN_ALERT"URB SUBMITTED SUCCESSFULLY BITCHES");
         }
     }else{
-        printk(KERN_WARNING "Fucked up at beginning");
+        printk(KERN_WARNING "Failed at beginning");
     }
 }
 
